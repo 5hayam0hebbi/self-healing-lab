@@ -1,0 +1,23 @@
+name: ci
+
+on: [push, workflow_dispatch]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check . && ruff format --check .
+      - run: pytest -v
+      - name: Check the Prometheus and Alertmanager files
+        run: |
+          docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.54.1 check rules /p/alerts.yml
+          docker run --rm -v "$PWD/alertmanager:/a" --entrypoint amtool prom/alertmanager:v0.27.0 check-config /a/alertmanager.yml
+      - name: Build every image
+        run: |
+          cp .env.example .env
+          docker compose build

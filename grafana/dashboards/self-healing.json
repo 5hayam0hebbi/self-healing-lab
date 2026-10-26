@@ -1,0 +1,22 @@
+{
+  "uid": "self-healing",
+  "title": "Self-healing lab",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "Health check (1 = passing)", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "datasource": {"type": "prometheus", "uid": "prom"},
+     "targets": [{"refId": "A", "expr": "app_healthy", "legendFormat": "healthy"}]},
+    {"id": 2, "type": "timeseries", "title": "Process up (Prometheus can reach it)", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "datasource": {"type": "prometheus", "uid": "prom"},
+     "targets": [{"refId": "A", "expr": "up{job=\"app\"}", "legendFormat": "up"}]},
+    {"id": 3, "type": "timeseries", "title": "Payments per second by status", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+     "datasource": {"type": "prometheus", "uid": "prom"},
+     "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+     "targets": [{"refId": "A", "expr": "sum by (status) (rate(app_requests_total[1m]))", "legendFormat": "{{status}}"}]},
+    {"id": 4, "type": "timeseries", "title": "Automatic remediations", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+     "datasource": {"type": "prometheus", "uid": "prom"},
+     "targets": [{"refId": "A", "expr": "sum by (result) (remediations_total)", "legendFormat": "{{result}}"}]}
+  ]
+}

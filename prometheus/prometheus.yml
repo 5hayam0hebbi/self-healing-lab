@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s        # read every target's numbers every 5 seconds
+  evaluation_interval: 5s    # check the alert rules every 5 seconds
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: app
+    static_configs:
+      - targets: ["app:8000"]
+  - job_name: remediator
+    static_configs:
+      - targets: ["remediator:9000"]

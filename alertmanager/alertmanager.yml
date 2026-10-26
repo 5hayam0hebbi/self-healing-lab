@@ -1,0 +1,12 @@
+route:
+  receiver: remediator
+  group_by: ["alertname"]
+  group_wait: 5s          # wait this long to batch alerts that fire together
+  group_interval: 30s
+  repeat_interval: 2m     # resend a still-firing alert every 2 minutes
+
+receivers:
+  - name: remediator
+    webhook_configs:
+      - url: http://remediator:9000/alerts
+        send_resolved: true
