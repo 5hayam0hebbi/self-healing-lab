@@ -21,6 +21,10 @@ Typical recovery: about 40 seconds, no human.
 
 Grafana: http://localhost:3000 · Prometheus: http://localhost:9090 · Alertmanager: http://localhost:9093
 
+### Example
+
+![Grafana Dashboard on Crash and Self-Heal](docs/dashboard.png)
+
 ## Design choices
 
 - Only alerts labelled `remediation: restart` are acted on; symptoms like a high error rate are shown, never auto-fixed.
