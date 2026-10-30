@@ -39,3 +39,26 @@ def issue_body(alert: dict) -> str:
         f"**Runbook:** {notes.get('runbook', 'none')}\n\n"
         "The remediator is restarting the service and will report back here."
     )
+
+
+def playbook_command(playbook: str, service: str, health_url: str, docker_socket: str) -> list[str]:
+    """The ansible-playbook command that restarts `service` and waits for its health check.
+
+    -e sets a variable in the playbook, so one playbook works for any service.
+    """
+    return [
+        "ansible-playbook",
+        playbook,
+        "-e",
+        f"service={service}",
+        "-e",
+        f"health_url={health_url}",
+        "-e",
+        f"docker_socket={docker_socket}",
+    ]
+
+
+def last_lines(text: str, n: int = 12) -> str:
+    """The last `n` non-empty lines of Ansible's output: the end of the run and its recap."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    return "\n".join(lines[-n:])

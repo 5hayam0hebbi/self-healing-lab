@@ -1,14 +1,13 @@
-"""remediator/main.py - receives alerts, opens a ticket, restarts the service, checks it, closes the ticket."""
+"""remediator/main.py - receives alerts, opens a ticket, runs the Ansible runbook, closes the ticket."""
 
 import logging
 import os
+import subprocess
 import time
 
-import docker
-import requests
 from fastapi import BackgroundTasks, FastAPI
 from github import Tickets
-from logic import RateLimiter, alerts_to_fix, issue_body
+from logic import RateLimiter, alerts_to_fix, issue_body, last_lines, playbook_command
 from prometheus_client import Counter, make_asgi_app
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -16,6 +15,9 @@ log = logging.getLogger("remediator")
 
 SERVICE = os.environ.get("TARGET_SERVICE", "app")  # the Docker Compose service to restart
 HEALTH_URL = os.environ.get("HEALTH_URL", "http://app:8000/health")
+# The runbook as code: restart the service, then wait until its health check passes
+PLAYBOOK = os.environ.get("PLAYBOOK", "/app/ansible/restart_service.yml")
+DOCKER_SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
 
 app = FastAPI(title="remediator")
 app.mount("/metrics", make_asgi_app())
@@ -24,27 +26,15 @@ limiter = RateLimiter(limit=int(os.environ.get("MAX_FIXES", "3")), window=600)
 tickets = Tickets()
 
 
-def healthy(wait: int = 60) -> bool:
-    """Poll the health check for up to `wait` seconds."""
-    deadline = time.time() + wait
-    while time.time() < deadline:
-        try:
-            if requests.get(HEALTH_URL, timeout=2).status_code == 200:
-                return True
-        except requests.RequestException:
-            pass
-        time.sleep(2)
-    return False
-
-
-def restart_service() -> None:
-    client = docker.from_env()  # talks to Docker through the mounted socket
-    containers = client.containers.list(all=True, filters={"label": f"com.docker.compose.service={SERVICE}"})
-    if not containers:
-        raise RuntimeError(f"no container found for service '{SERVICE}'")
-    for c in containers:
-        log.info("restarting %s", c.name)
-        c.restart(timeout=5)
+def run_playbook() -> tuple[bool, str]:
+    """Run the Ansible runbook. Returns (it worked, the end of Ansible's output)."""
+    command = playbook_command(PLAYBOOK, SERVICE, HEALTH_URL, DOCKER_SOCKET)
+    log.info("running %s", " ".join(command))
+    # capture_output keeps Ansible's report, so it can go into the ticket
+    result = subprocess.run(command, capture_output=True, text=True, timeout=180)
+    output = last_lines(result.stdout + result.stderr)
+    log.info("ansible-playbook finished with code %s\n%s", result.returncode, output)
+    return result.returncode == 0, output
 
 
 def remediate(alert: dict) -> None:
@@ -57,20 +47,22 @@ def remediate(alert: dict) -> None:
     number = tickets.open(f"[auto-heal] {name}", issue_body(alert), ["auto-heal"])
     started = time.time()
     try:
-        restart_service()
-        fixed = healthy()
-    except Exception as e:  # Docker unreachable, container missing
-        log.exception("restart failed")
-        tickets.comment(number, f"Restart failed: `{e}`. A human needs to look.")
+        fixed, report = run_playbook()
+    except (OSError, subprocess.TimeoutExpired) as e:  # Ansible missing or stuck
+        log.exception("playbook could not run")
+        tickets.comment(number, f"The runbook could not run: `{e}`. A human needs to look.")
         FIXES.labels("failed").inc()
         return
     seconds = int(time.time() - started)
+    # Ansible's own report goes into the ticket, like a change record
+    evidence = f"\n\n```\n{report}\n```"
     if fixed:
-        tickets.comment(number, f"Restarted `{SERVICE}`; health check passing after {seconds}s. Closing.")
+        message = f"Ansible restarted `{SERVICE}`; health check passing after {seconds}s. Closing."
+        tickets.comment(number, message + evidence)
         tickets.close(number)
         FIXES.labels("fixed").inc()
     else:
-        tickets.comment(number, f"Restarted `{SERVICE}` but health is still failing after {seconds}s. Escalating.")
+        tickets.comment(number, f"The Ansible runbook failed after {seconds}s. Escalating to a human.{evidence}")
         FIXES.labels("failed").inc()
 
 

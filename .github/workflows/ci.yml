@@ -13,6 +13,8 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check . && ruff format --check .
       - run: pytest -v
+      - name: Lint the Ansible runbook
+        run: ansible-lint ansible/
       - name: Check the Prometheus and Alertmanager files
         run: |
           docker run --rm -v "$PWD/prometheus:/p" --entrypoint promtool prom/prometheus:v2.54.1 check rules /p/alerts.yml
@@ -21,3 +23,13 @@ jobs:
         run: |
           cp .env.example .env
           docker compose build
+      - name: Chaos test - break the app, heal it with the Ansible runbook
+        run: |
+          docker compose up -d app
+          # wait up to 30 seconds for the app to start
+          for i in $(seq 1 30); do curl -sf http://localhost:8000/health && break; sleep 1; done
+          curl -s -X POST http://localhost:8000/chaos/break
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/health)" = "503"
+          ansible-playbook ansible/restart_service.yml -e health_url=http://localhost:8000/health
+          curl -sf http://localhost:8000/health
+          echo "Healed by Ansible"

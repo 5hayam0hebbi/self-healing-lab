@@ -7,7 +7,7 @@ A laptop-sized version of the self-healing operations I ran in production bankin
 1. A payments service exposes Prometheus metrics; fake customers send it traffic.
 2. Prometheus fires `AppUnhealthy` when the health metric stays at 0 for 15 seconds, or `AppDown` when the process stops answering.
 3. Alertmanager posts the alert to the remediator.
-4. The remediator opens a GitHub Issue (the ServiceNow stand-in), restarts the container through the Docker API, polls the health check, then comments the recovery time and closes the issue.
+4. The remediator opens a GitHub Issue (the ServiceNow stand-in) and runs an Ansible playbook (ansible/restart_service.yml) that finds the service's container through the Docker API, restarts it and waits until the health check passes. Ansible's run report goes into the issue as evidence, and the issue is closed with the recovery time.
 5. More than 3 restarts in 10 minutes means automation is masking a real problem: it stops and opens a `needs-human` issue instead.
 6. Grafana shows health, traffic and remediations on one dashboard.
 
@@ -31,7 +31,8 @@ Grafana: http://localhost:3000 · Prometheus: http://localhost:9090 · Alertmana
 - `for:` durations stop one bad reading from triggering a restart.
 - The rate limit turns a restart loop into an escalation.
 - Mounting the Docker socket is acceptable in a lab; in production the remediator would call the platform's API (OpenShift, Kubernetes) with a narrowly scoped service account.
+- The fix is a runbook as code: one Ansible playbook, readable and reviewable, with variables (-e service=... -e health_url=...) so it works for any service. It needs only ansible-core: it calls Docker's API through the socket with the built-in uri module. You can run it by hand: ansible-playbook ansible/restart_service.yml -e health_url=http://localhost:8000/health.
 
 ## Tests
 
-`pytest -v` covers the alert filter, the rate limiter, the ticket text and the app's failure mode. CI also runs the official `promtool` and `amtool` checkers and builds every image.
+`pytest -v` covers the alert filter, the rate limiter, the ticket text, the Ansible command and the app's failure mode. CI also runs `ansible-lint` (production profile), the official `promtool` and `amtool` checkers, builds every image, and runs a chaos test: it breaks the app on GitHub's machine and fails unless the Ansible playbook heals it.

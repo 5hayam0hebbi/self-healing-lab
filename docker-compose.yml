@@ -29,9 +29,12 @@ services:
     environment:
       TARGET_SERVICE: app
       HEALTH_URL: http://app:8000/health
+      PLAYBOOK: /app/ansible/restart_service.yml
     volumes:
       # Lets the remediator restart containers. Powerful: fine for a laptop lab, never in production.
       - /var/run/docker.sock:/var/run/docker.sock
+      # The Ansible runbook, read-only: edit it on your laptop, no rebuild needed
+      - ./ansible:/app/ansible:ro
     ports: ["9000:9000"]
 
   grafana:

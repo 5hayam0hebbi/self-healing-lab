@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "remediator"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from fastapi.testclient import TestClient  # noqa: E402
-from logic import RateLimiter, alerts_to_fix, issue_body  # noqa: E402
+from logic import RateLimiter, alerts_to_fix, issue_body, last_lines, playbook_command  # noqa: E402
 
 
 def test_only_firing_restart_alerts_are_fixed():
@@ -42,3 +42,15 @@ def test_app_breaks_and_reports_unhealthy():
     assert client.get("/health").status_code == 503
     assert client.get("/pay").status_code == 503
     assert b"app_healthy 0.0" in client.get("/metrics/").content
+
+
+def test_playbook_command_passes_the_service_and_health_url():
+    command = playbook_command("ansible/restart_service.yml", "app", "http://app:8000/health", "/var/run/docker.sock")
+    assert command[:2] == ["ansible-playbook", "ansible/restart_service.yml"]
+    assert "service=app" in command
+    assert "health_url=http://app:8000/health" in command
+
+
+def test_last_lines_keeps_the_recap():
+    output = "PLAY [x]\n\nTASK [a]\nok: [localhost]\n\nPLAY RECAP\nlocalhost : ok=3 failed=0\n"
+    assert last_lines(output, n=2) == "PLAY RECAP\nlocalhost : ok=3 failed=0"
