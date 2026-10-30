@@ -1,0 +1,46 @@
+# ansible/restart_service.yml - the "restart and verify" runbook as code.
+# The remediator runs it when an alert fires. Ansible talks to Docker's API
+# through the Docker socket (no docker command needed), restarts the service's
+# container, then waits until the service's health check passes.
+# Try it by hand: ansible-playbook ansible/restart_service.yml -e health_url=http://localhost:8000/health
+- name: Restart a service and verify it is healthy
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    service: app # the Docker Compose service to restart
+    health_url: http://app:8000/health # where to check it's healthy again
+    docker_socket: /var/run/docker.sock # Docker's API, as a file on this machine
+    label_filter: "{{ {'label': ['com.docker.compose.service=' ~ service]} | to_json | urlencode }}"
+
+  tasks:
+    - name: Find the service's containers
+      ansible.builtin.uri:
+        url: "http://localhost/containers/json?all=1&filters={{ label_filter }}"
+        unix_socket: "{{ docker_socket }}"
+      register: found
+
+    - name: Stop if there is no container for this service
+      ansible.builtin.fail:
+        msg: "No container found for service '{{ service }}'"
+      when: found.json | length == 0
+
+    - name: Restart each container
+      ansible.builtin.uri:
+        url: "http://localhost/containers/{{ item.Id }}/restart?t=5"
+        method: POST
+        unix_socket: "{{ docker_socket }}"
+        status_code: 204
+      changed_when: true # a restart always changes something
+      loop: "{{ found.json }}"
+      loop_control:
+        label: "{{ item.Names[0] }}"
+
+    - name: Wait until the health check passes (up to 60 seconds)
+      ansible.builtin.uri:
+        url: "{{ health_url }}"
+        status_code: 200
+      register: health
+      until: health.status == 200
+      retries: 30
+      delay: 2

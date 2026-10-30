@@ -3,3 +3,4 @@
 httpx
 pytest
 ruff
+ansible-lint
